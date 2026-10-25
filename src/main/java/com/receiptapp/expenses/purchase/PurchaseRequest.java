@@ -153,7 +153,15 @@ public class PurchaseRequest extends TimestampedEntity {
         decide(decider, PurchaseRequestStatus.REJECTED, reason);
     }
 
-    /** The worker decided not to buy. Allowed before or after approval. */
+    /** Approved requests stay open for receipts until the worker submits them. */
+    public boolean isOpenForReceipts() {
+        return status == PurchaseRequestStatus.APPROVED;
+    }
+
+    /**
+     * The worker decided not to buy. Allowed before or after approval. The service
+     * must first check no receipts are attached (draft receipts are discarded).
+     */
     public void cancel() {
         if (status != PurchaseRequestStatus.PENDING && status != PurchaseRequestStatus.APPROVED) {
             throw new BusinessRuleException("Only pending or approved requests can be cancelled.");
@@ -161,7 +169,9 @@ public class PurchaseRequest extends TimestampedEntity {
         status = PurchaseRequestStatus.CANCELLED;
     }
 
-    /** Called when the receipt for this approved request is submitted. */
+    /**
+     * Called by the service once the worker submits all receipts for this request.
+     */
     public void markCompleted() {
         requireStatus(PurchaseRequestStatus.APPROVED, "complete");
         status = PurchaseRequestStatus.COMPLETED;
