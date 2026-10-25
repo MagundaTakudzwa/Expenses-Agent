@@ -9,7 +9,6 @@ import com.receiptapp.expenses.common.TimestampedEntity;
 import com.receiptapp.expenses.company.Company;
 import com.receiptapp.expenses.fuel.FuelType;
 import com.receiptapp.expenses.purchase.PurchaseRequest;
-import com.receiptapp.expenses.purchase.PurchaseRequestStatus;
 import com.receiptapp.expenses.user.AppUser;
 import com.receiptapp.expenses.user.Role;
 import jakarta.persistence.CascadeType;
@@ -27,7 +26,6 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
-import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -43,7 +41,8 @@ import java.util.Objects;
 
 /**
  * A claim for money already spent (or a mileage or subsistence claim). Matches
- * "expenses" (V4).
+ * "expenses" (V4, changed by V6). Every claim starts as a DRAFT until the
+ * worker submits it.
  */
 @Entity
 @Table(name = "expenses")
@@ -67,7 +66,7 @@ public class Expense extends TimestampedEntity {
     @JoinColumn(name = "category_id", nullable = false)
     private ExpenseCategory category;
 
-    // A snapshot of the category's type when submitted.
+    // A snapshot of the category's type when the claim was created.
     @Enumerated(EnumType.STRING)
     @Column(name = "claim_type", nullable = false, length = 20)
     private ClaimType claimType;
@@ -160,7 +159,7 @@ public class Expense extends TimestampedEntity {
     // ---- review
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
-    private ExpenseStatus status = ExpenseStatus.SUBMITTED;
+    private ExpenseStatus status = ExpenseStatus.DRAFT;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "reviewed_by_id")
@@ -187,8 +186,8 @@ public class Expense extends TimestampedEntity {
     @Column(name = "version", nullable = false)
     private long version;
 
-    @CreationTimestamp
-    @Column(name = "submitted_at", nullable = false, updatable = false)
+    // Empty while the claim is a draft; set when the worker submits it.
+    @Column(name = "submitted_at")
     private Instant submittedAt;
 
     @OneToMany(mappedBy = "expense", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -332,14 +331,15 @@ public class Expense extends TimestampedEntity {
                     || !Objects.equals(request.getRequestedBy().getId(), submittedBy.getId())) {
                 throw new BusinessRuleException("You can only claim against your own purchase requests.");
             }
-            if (request.getStatus() != PurchaseRequestStatus.APPROVED) {
-                throw new BusinessRuleException("Only approved requests can be claimed against (this one is "
-                        + request.getStatus() + ").");
+            if (!request.isOpenForReceipts()) {
+                throw new BusinessRuleException("Receipts can only be added to an approved request that is "
+                        + "still open (this one is " + request.getStatus() + ").");
             }
             if (request.getCurrency() != currency) {
                 throw new BusinessRuleException("The receipt currency must match the approved request.");
             }
-            request.markCompleted();
+            // The request stays open: the worker may add more receipts before submitting
+            // them all.
             this.purchaseRequest = request;
             return;
         }
@@ -363,7 +363,7 @@ public class Expense extends TimestampedEntity {
         if (claimType != ClaimType.RECEIPT) {
             throw new BusinessRuleException("Only receipt claims have item rows.");
         }
-        requireStatus(ExpenseStatus.SUBMITTED, "add items to");
+        requireStatus(ExpenseStatus.DRAFT, "add items to");
         ExpenseItem item = new ExpenseItem(this, items.size() + 1, description, quantity,
                 unit, unitPrice, lineTotal);
         items.add(item);
@@ -385,6 +385,27 @@ public class Expense extends TimestampedEntity {
         this.extractedData = extractedJson;
     }
 
+    // ================================================================ submitting
+
+    /**
+     * The worker sends the claim to their manager. Until then it's a draft they can
+     * still change. Receipts for a purchase request are submitted together by the
+     * service, which then completes the request.
+     */
+    public void submit(AppUser by) {
+        requireStatus(ExpenseStatus.DRAFT, "submit");
+        requireSubmitter(by, "submit");
+        if (purchaseRequest != null && !purchaseRequest.isOpenForReceipts()) {
+            throw new BusinessRuleException("The purchase request for this receipt is no longer open.");
+        }
+        this.status = ExpenseStatus.SUBMITTED;
+        this.submittedAt = Instant.now();
+    }
+
+    public boolean isDraft() {
+        return status == ExpenseStatus.DRAFT;
+    }
+
     // ================================================================ review
 
     public void verify(AppUser reviewer) {
@@ -404,9 +425,7 @@ public class Expense extends TimestampedEntity {
     /** The worker has answered a query, so the claim goes back for review. */
     public void resubmit(AppUser by) {
         requireStatus(ExpenseStatus.QUERIED, "resubmit");
-        if (!Objects.equals(by.getId(), submittedBy.getId())) {
-            throw new BusinessRuleException("Only the person who submitted a claim can resubmit it.");
-        }
+        requireSubmitter(by, "resubmit");
         // The question and answer stay in the audit trail.
         this.status = ExpenseStatus.SUBMITTED;
         this.reviewedBy = null;
@@ -483,6 +502,12 @@ public class Expense extends TimestampedEntity {
         }
         if (Objects.equals(user.getId(), submittedBy.getId())) {
             throw new BusinessRuleException("You can't " + action + " your own claim.");
+        }
+    }
+
+    private void requireSubmitter(AppUser user, String action) {
+        if (!Objects.equals(user.getId(), submittedBy.getId())) {
+            throw new BusinessRuleException("Only the person who created a claim can " + action + " it.");
         }
     }
 
