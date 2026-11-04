@@ -5,7 +5,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
@@ -27,7 +26,8 @@ import java.util.Base64;
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http,
+            CurrentUserJwtConverter currentUserJwtConverter) throws Exception {
         http
                 // No cookies are used, so cross-site request forgery doesn't apply.
                 .csrf(csrf -> csrf.disable())
@@ -40,7 +40,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/companies").permitAll()
                         // Everything else needs a valid token.
                         .anyRequest().authenticated())
-                .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()));
+                // Check the token, then load the user from the database with our converter.
+                .oauth2ResourceServer(
+                        oauth -> oauth.jwt(jwt -> jwt.jwtAuthenticationConverter(currentUserJwtConverter)));
         return http.build();
     }
 
@@ -65,7 +67,7 @@ public class SecurityConfig {
         return decoder;
     }
 
-    /** Signs new tokens when someone logs in (used in Step 6b). */
+    /** Signs new tokens when someone logs in. */
     @Bean
     JwtEncoder jwtEncoder(SecretKey jwtSigningKey) {
         return new NimbusJwtEncoder(new ImmutableSecret<>(jwtSigningKey));

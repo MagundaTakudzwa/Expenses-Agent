@@ -1,0 +1,58 @@
+@baseUrl = http://localhost:8080
+
+### 1. Log in. "@name login" lets later requests reuse the token.
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@localtest.co.zw",
+  "password": "LocalTest-2026-Admin"
+}
+
+### 2. Who am I? Uses the token from request 1.
+GET {{baseUrl}}/api/me
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### 3. Wrong password: 401, generic message
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@localtest.co.zw",
+  "password": "wrong-password"
+}
+
+### 4. Unknown email: the SAME message as request 3
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "nobody@localtest.co.zw",
+  "password": "LocalTest-2026-Admin"
+}
+
+### 5. Deactivated user with the right password: 401, "deactivated"
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "former@localtest.co.zw",
+  "password": "LocalTest-2026-Admin"
+}
+
+### 6. Blank fields: 400 with a list of what's wrong
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "",
+  "password": ""
+}
+
+### 7. No token: 401
+GET {{baseUrl}}/api/me
+
+### 8. Tampered token (one extra letter): 401
+GET {{baseUrl}}/api/me
+Authorization: Bearer {{login.response.body.accessToken}}x
