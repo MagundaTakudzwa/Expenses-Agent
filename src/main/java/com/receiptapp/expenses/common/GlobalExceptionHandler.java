@@ -1,5 +1,8 @@
 package com.receiptapp.expenses.common;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
@@ -17,6 +20,8 @@ import java.util.Map;
 /** Turns errors into clear JSON answers instead of stack traces. */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     /** A business rule was broken, e.g. approving your own request. */
     @ExceptionHandler(BusinessRuleException.class)
@@ -40,6 +45,19 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleConcurrentChange(ObjectOptimisticLockingFailureException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
                 "Someone else changed this at the same time. Please reload and try again.");
+    }
+
+    /**
+     * The database refused a save, e.g. two sign-ups with the same email at the
+     * same moment.
+     * We log the real cause for ourselves but never send constraint names to the
+     * client.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ProblemDetail handleDataConflict(DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                "This conflicts with existing data. Please refresh and try again.");
     }
 
     /** Fields failed the @NotBlank, @Email, @Size... rules. */
