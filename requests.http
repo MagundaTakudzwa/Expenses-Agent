@@ -1,0 +1,111 @@
+@baseUrl = http://localhost:8080
+
+### 1. Log in. "@name login" lets later requests reuse the token.
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@localtest.co.zw",
+  "password": "LocalTest-2026-Admin"
+}
+
+### 2. Who am I? Uses the token from request 1.
+GET {{baseUrl}}/api/me
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### 3. Wrong password: 401, generic message
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@localtest.co.zw",
+  "password": "wrong-password"
+}
+
+### 4. Unknown email: the SAME message as request 3
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "nobody@localtest.co.zw",
+  "password": "LocalTest-2026-Admin"
+}
+
+### 5. Deactivated user with the right password: 401, "deactivated"
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "former@localtest.co.zw",
+  "password": "LocalTest-2026-Admin"
+}
+
+### 6. Blank fields: 400 with a list of what's wrong
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "",
+  "password": ""
+}
+
+### 7. No token: 401
+GET {{baseUrl}}/api/me
+
+### 8. Tampered token (one extra letter): 401
+GET {{baseUrl}}/api/me
+Authorization: Bearer {{login.response.body.accessToken}}x
+
+### 6c-1  Sign up a new company → 201
+# @name signup
+POST {{baseUrl}}/api/companies
+Content-Type: application/json
+
+{
+  "companyName": "Chiedza Logistics",
+  "baseCurrency": "USD",
+  "adminFullName": "Chiedza Moyo",
+  "adminEmail": "chiedza@chiedzalogistics.co.zw",
+  "adminPhone": "+263 77 123 4567",
+  "password": "Harare-Depot-2026"
+}
+
+### 6c-2  The sign-up token works straight away → 200, role ADMIN
+GET {{baseUrl}}/api/me
+Authorization: Bearer {{signup.response.body.accessToken}}
+
+### 6c-3  Log in with the new account → 200
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{ "email": "CHIEDZA@chiedzalogistics.co.zw", "password": "Harare-Depot-2026" }
+
+### 6c-4  Same email again → 422 "already exists"
+POST {{baseUrl}}/api/companies
+Content-Type: application/json
+
+{
+  "companyName": "Copycat Ltd",
+  "adminFullName": "Someone Else",
+  "adminEmail": "chiedza@chiedzalogistics.co.zw",
+  "password": "Another-Pass-2026"
+}
+
+### 6c-5  Blank name + short password → 400 with an "errors" list
+POST {{baseUrl}}/api/companies
+Content-Type: application/json
+
+{ "companyName": "", "adminFullName": "Tendai", "adminEmail": "tendai@example.co.zw", "password": "short" }
+
+### 6c-6  Password contains the email → 422
+POST {{baseUrl}}/api/companies
+Content-Type: application/json
+
+{ "companyName": "Tendai Builders", "adminFullName": "Tendai Ncube", "adminEmail": "tendai@builders.co.zw", "password": "tendai-2026-site" }
+
+### 6c-7  Unknown currency → 400 (unreadable request)
+POST {{baseUrl}}/api/companies
+Content-Type: application/json
+
+{ "companyName": "Rand Traders", "baseCurrency": "GBP", "adminFullName": "Sipho Dube", "adminEmail": "sipho@randtraders.co.zw", "password": "Beitbridge-Run-2026" }
