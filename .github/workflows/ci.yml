@@ -1,25 +1,25 @@
 name: CI
 
 on:
-    push:
-      branches: [ main, develop ]
-    pull_request:
-      branches: [ main, develop ]
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
 
 permissions:
   contents: read
 
 concurrency:
-  cancel-in-progress: true
   group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    name: build and tests
+    name: Build and test
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    servicess:
+    services:
       postgres:
         image: postgres:18
         env:
@@ -33,6 +33,24 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+
     env:
       DB_USERNAME: expenses_app
       DB_PASSWORD: ci-only-password
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v5
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Generate a throwaway JWT secret
+        run: echo "JWT_SECRET=$(openssl rand -base64 48)" >> "$GITHUB_ENV"
+
+      - name: Build and run tests
+        run: ./mvnw -B verify
